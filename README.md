@@ -1,138 +1,345 @@
 # Multicluster Observability Sandbox 🚀
+
 ### FastAPI | OpenTelemetry | KinD | Tempo | Prometheus | Loki | Grafana
 
-Este repositório contém a implementação completa de uma arquitetura de observabilidade corporativa distribuída em ambiente local utilizando **Kubernetes (KinD)**. O projeto demonstra a separação completa de contextos entre o ambiente de aplicação, a infraestrutura de monitoramento e a camada de visualização, utilizando o padrão de mercado **OpenTelemetry** para coleta dos três pilares da observabilidade: Traces, Métricas e Logs.
+This repository contains a complete implementation of a distributed enterprise observability architecture running locally using **Kubernetes (KinD)**.
+
+The project demonstrates complete separation of contexts between the application environment, the monitoring infrastructure, and the visualization layer, using the industry-standard **OpenTelemetry** framework to collect the three pillars of observability: **Traces, Metrics, and Logs**.
 
 ---
 
-## 🏗️ Arquitetura do Sistema (Topologia de 3 Clusters)
+## 🏗️ System Architecture — 3-Cluster Topology
 
-O ambiente foi desenhado simulando diretrizes de segurança de redes em produção, isolando os serviços em três clusters locais distintos que se comunicam através de port-forwarding e NodePorts na rede interna do Docker:
+The environment was designed to simulate production network security guidelines by isolating services into three distinct local clusters that communicate through port forwarding and NodePorts over the internal Docker network:
 
 ```text
 [ CLUSTER 1: cluster-app ]      [ CLUSTER 2: cluster-obs ]      [ CLUSTER 3: cluster-grafana ]
 ┌────────────────────────┐      ┌────────────────────────┐      ┌────────────────────────────┐
 │  ┌──────────────────┐  │      │  ┌──────────────────┐  │      │                            │
 │  │    FastAPI API   │──┼─────>│  │  OTel Collector  │  │      │                            │
-│  └────────┬─────────┘  │      │  └────────┬─────────┘  │      │                            │
-│           │            │      │           │            │      │      ┌──────────────┐      │
-│  ┌────────▼─────────┐  │      │     ┌─────┼─────┐      │      │      │              │      │
-│  │    PostgreSQL    │  │      │     │     │     │      │      │      │ Grafana (UI) │      │
-│  └──────────────────┘  │      │ ┌───▼─┐ ┌─▼───┐ ┌───▼──┐      │      │              │      │
-│                        │      │ │Tempo│ │Prom │ │Loki │◄───┼──┤      └──────▲───────┘      │
+│  └────────┬─────────┘  │      │  └────────┬─────────┘  │      │      ┌──────────────┐      │
+│           │            │      │           │            │      │      │              │      │
+│  ┌────────▼─────────┐  │      │     ┌─────┼─────┐      │      │      │ Grafana (UI) │      │
+│  │    PostgreSQL    │  │      │     │     │     │      │      │      │              │      │
+│  └──────────────────┘  │      │ ┌───▼─┐ ┌─▼───┐ ┌───▼──┐      │      └──────▲───────┘      │
+│                        │      │ │Tempo│ │Prom │ │Loki │◄───┼──┤             │              │
 │  ┌──────────────────┐  │      │ └─────┘ └─────┘ └──────┘      │             │              │
 │  │ OTel Host Agent  │──┼─────>│                               │     ┌───────▼────────┐     │
 │  └──────────────────┘  │      │                               │     │ Ingress (Nginx)│     │
 └────────────────────────┘      └────────────────────────┘      └─────┴───────▲────────┴─────┘
-                                                                              │
-                                                                       (grafana.local)
-1. Cluster 1: cluster-app
-FastAPI Application: API Python instrumentada com o OpenTelemetry SDK.
+                                                                             │
+                                                                      (grafana.local)
+```
 
-PostgreSQL: Banco de dados relacional.
+### 1. Cluster 1: `cluster-app`
 
-OTel Agent: Coletor em modo Daemon/Agent para raspar métricas do hardware do host (CPU, memória e disco).
+**FastAPI Application:** Python API instrumented with the OpenTelemetry SDK.
 
-Ingress NGINX: Gerencia a entrada de tráfego externo para a API.
+**PostgreSQL:** Relational database used by the application.
 
-2. Cluster 2: cluster-obs (A Central de Dados Trancada)
-OpenTelemetry Collector: Atua como pipeline central. Implementa processors de otimização (memory_limiter, batch, resource para injeção de labels OTLP) antes de despachar os dados para os bancos de destino.
+**OTel Agent:** Collector running in DaemonSet/Agent mode to collect host hardware metrics such as CPU, memory, and disk usage.
 
-Grafana Tempo: Backend para armazenamento de Traces distribuídos.
+**NGINX Ingress:** Handles external traffic routing to the API.
 
-Prometheus: Servidor Time-Series responsável pelas métricas.
+### 2. Cluster 2: `cluster-obs` — The Central Data Layer
 
-Loki: Banco de dados especializado em armazenamento e busca textual de Logs.
+**OpenTelemetry Collector:** Acts as the central telemetry pipeline. It implements optimization processors such as `memory_limiter`, `batch`, and `resource` for OTLP label injection before forwarding telemetry data to the destination backends.
 
-3. Cluster 3: cluster-grafana (Camada Visual)
-Grafana: Interface visual configurada via código (ConfigMaps) para se conectar ao cluster-obs usando NodePorts (30090, 30200, 30100).
+**Grafana Tempo:** Backend responsible for storing distributed traces.
 
-Ingress NGINX: Responsável por expor a interface visual de forma elegante através da URL customizada grafana.local.
+**Prometheus:** Time-series database responsible for storing metrics.
 
-📂 Estrutura de Pastas
-Plaintext
+**Loki:** Specialized log aggregation system for storing and querying logs.
+
+### 3. Cluster 3: `cluster-grafana` — Visualization Layer
+
+**Grafana:** Visualization interface configured through code using ConfigMaps to connect to the `cluster-obs` through NodePorts (`30090`, `30200`, `30100`).
+
+**NGINX Ingress:** Exposes the visualization interface through the custom URL `grafana.local`.
+
+---
+
+## 📂 Project Structure
+
+```text
 .
 ├── app/
-│   ├── Dockerfile                  # Receita de build da aplicação
-│   ├── main.py                     # Código-fonte da API Python instrumentada
-│   └── requirements.txt            # Dependências Python
+│   ├── Dockerfile                  # Application build instructions
+│   ├── main.py                     # Instrumented Python API source code
+│   └── requirements.txt            # Python dependencies
 ├── infra/
-│   ├── kind-cluster-app.yaml       # Definição física do Cluster 1 (App)
-│   ├── kind-cluster-grafana.yaml   # Definição física do Cluster 3 (UI - Porta 80)
-│   └── kind-cluster-obs.yaml       # Definição física do Cluster 2 (Obs)
+│   ├── kind-cluster-app.yaml       # Physical definition of Cluster 1 (App)
+│   ├── kind-cluster-grafana.yaml   # Physical definition of Cluster 3 (UI - Port 80)
+│   └── kind-cluster-obs.yaml       # Physical definition of Cluster 2 (Observability)
 └── k8s/
-    ├── cluster-app/                # Manifestos da Aplicação
+    ├── cluster-app/                # Application manifests
     │   ├── api-deployment.yaml
     │   ├── ingress-api.yaml
     │   ├── otel-agent.yaml
     │   └── postgres.yaml
-    ├── cluster-grafana/            # Manifestos da Camada de Visualização
+    ├── cluster-grafana/            # Visualization layer manifests
     │   ├── grafana.yaml
     │   └── ingress-grafana.yaml
-    └── cluster-obs/                # Manifestos dos Bancos de Telemetria
+    └── cluster-obs/                # Telemetry backend manifests
         ├── ingress-obs.yaml
         ├── loki.yaml
         ├── otel-collector.yaml
         ├── prometheus.yaml
         └── tempo.yaml
-🚀 Como Executar o Projeto
-Pré-requisitos
-Certifique-se de que o arquivo hosts do seu sistema operacional (ex: C:\Windows\System32\drivers\etc\hosts) contém o apontamento local:
+```
+
+---
+
+## 🚀 Getting Started
+
+### Prerequisites
+
+Make sure the following tools are installed and available in your `PATH`:
+
+- Docker
+- Kubernetes
+- KinD (Kubernetes in Docker)
+- `kubectl`
+
+Also make sure your operating system's `hosts` file contains the following local entry:
+
+**Windows:**
+
+```text
+C:\Windows\System32\drivers\etc\hosts
+```
+
+**Linux/macOS:**
+
+```text
+/etc/hosts
+```
+
+Add:
+
+```text
 127.0.0.1 grafana.local
+```
 
-Passo 1: Construir a Infraestrutura Física
-Crie os três clusters isolados utilizando o KinD:
+---
 
-Bash
+### Step 1: Create the Infrastructure
+
+Create the three isolated Kubernetes clusters using KinD:
+
+```bash
 kind create cluster --config infra/kind-cluster-app.yaml --name cluster-app
+
 kind create cluster --config infra/kind-cluster-obs.yaml --name cluster-obs
+
 kind create cluster --config infra/kind-cluster-grafana.yaml --name cluster-grafana
-Passo 2: Instalar Controladores Ingress
-Para suportar rotas via URL, instale o NGINX Ingress Controller nos clusters aplicáveis:
+```
 
-Bash
-# No Cluster App
-kubectl apply -f [https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml](https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml) --context kind-cluster-app
+---
 
-# No Cluster Grafana
-kubectl apply -f [https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml](https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml) --context kind-cluster-grafana
-Aguarde os pods do ingress-nginx ficarem com status "Running" antes de prosseguir.
+### Step 2: Install Ingress Controllers
 
-Passo 3: Build e Deploy da Aplicação
-Crie e carregue a imagem da API para o cluster de aplicação:
+To support URL-based routing, install the NGINX Ingress Controller on the applicable clusters.
 
-Bash
+#### Cluster App
+
+```bash
+kubectl apply \
+  -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml \
+  --context kind-cluster-app
+```
+
+#### Cluster Grafana
+
+```bash
+kubectl apply \
+  -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml \
+  --context kind-cluster-grafana
+```
+
+Wait until the `ingress-nginx` pods are in the **Running** state before proceeding.
+
+---
+
+### Step 3: Build and Deploy the Application
+
+Build the API image and load it into the application cluster:
+
+```bash
 cd app
+
 docker build -t minha-api-app:latest .
+
 kind load docker-image minha-api-app:latest --name cluster-app
+
 cd ..
-Aplique os manifestos do cluster-app:
+```
 
-Bash
-kubectl apply -f k8s/cluster-app/ --context kind-cluster-app
-Passo 4: Subir o Backend de Observabilidade
-Implante a stack técnica de recebimento de dados no cluster-obs:
+Apply the application manifests:
 
-Bash
-kubectl apply -f k8s/cluster-obs/ --context kind-cluster-obs
-kubectl rollout restart deployment otel-collector --context kind-cluster-obs
-Passo 5: Subir a Camada de Visualização
-Implante o Grafana e suas regras de roteamento no cluster-grafana:
+```bash
+kubectl apply \
+  -f k8s/cluster-app/ \
+  --context kind-cluster-app
+```
 
-Bash
-kubectl apply -f k8s/cluster-grafana/ --context kind-cluster-grafana
-🧪 Validação e Testes
-1. Gerando Dados
-Envie tráfego contínuo para a aplicação, alimentando as pipelines de monitoramento:
+---
 
-Bash
-for i in {1..20}; do curl -s http://localhost:8080/health; echo ""; done
-2. Acesso ao Painel
-Abra o seu navegador e acesse a URL segura criada pelo Ingress: http://grafana.local (Credenciais padrão: admin / admin).
+### Step 4: Deploy the Observability Backend
 
-3. Explorando os Três Pilares (Menu Explore)
-🔴 Traces (Tempo): Selecione Tempo, mude a aba para Search, filtre por api-app-python e clique em Run Query para analisar o diagrama de execução de cada requisição.
+Deploy the telemetry ingestion and storage stack to `cluster-obs`:
 
-🟢 Métricas (Prometheus): Selecione Prometheus, e faça queries como http_server_duration_milliseconds_count (para volumetria de tráfego) ou system_cpu_utilization (para uso de hardware).
+```bash
+kubectl apply \
+  -f k8s/cluster-obs/ \
+  --context kind-cluster-obs
+```
 
-🔵 Logs (Loki): Selecione Loki, cole a LogQL {job="api-app-python"} na barra de busca e visualize todos os logs estruturados emitidos diretamente pela API, correlacionados no tempo.
+Restart the OpenTelemetry Collector deployment:
+
+```bash
+kubectl rollout restart deployment otel-collector \
+  --context kind-cluster-obs
+```
+
+---
+
+### Step 5: Deploy the Visualization Layer
+
+Deploy Grafana and its routing configuration to `cluster-grafana`:
+
+```bash
+kubectl apply \
+  -f k8s/cluster-grafana/ \
+  --context kind-cluster-grafana
+```
+
+---
+
+## 🧪 Validation and Testing
+
+### 1. Generate Telemetry Data
+
+Send continuous traffic to the application to populate the observability pipelines:
+
+```bash
+for i in {1..20}; do
+  curl -s http://localhost:8080/health
+  echo ""
+done
+```
+
+This generates requests that can be observed through the traces, metrics, and logs pipelines.
+
+---
+
+### 2. Access Grafana
+
+Open your browser and navigate to:
+
+```text
+http://grafana.local
+```
+
+Default credentials:
+
+```text
+Username: admin
+Password: admin
+```
+
+> **Note:** These are the default credentials configured for this local sandbox environment. They should not be used in a production deployment.
+
+---
+
+### 3. Explore the Three Pillars
+
+Navigate to **Explore** in Grafana.
+
+#### 🔴 Traces — Tempo
+
+Select **Tempo**, switch to the **Search** tab, filter by:
+
+```text
+api-app-python
+```
+
+Then click **Run Query** to inspect the execution flow of individual requests.
+
+#### 🟢 Metrics — Prometheus
+
+Select **Prometheus** and run queries such as:
+
+```promql
+http_server_duration_milliseconds_count
+```
+
+to inspect traffic volume, or:
+
+```promql
+system_cpu_utilization
+```
+
+to inspect host CPU utilization.
+
+#### 🔵 Logs — Loki
+
+Select **Loki** and use the following LogQL query:
+
+```logql
+{job="api-app-python"}
+```
+
+This allows you to visualize the structured logs emitted directly by the API and correlate them over time with the other telemetry signals.
+
+---
+
+## 🔭 Observability Stack
+
+| Component | Purpose |
+|---|---|
+| **FastAPI** | Application/API layer |
+| **OpenTelemetry SDK** | Application instrumentation |
+| **OpenTelemetry Collector** | Telemetry collection and processing |
+| **Grafana Tempo** | Distributed trace storage |
+| **Prometheus** | Metrics storage and querying |
+| **Grafana Loki** | Log aggregation and querying |
+| **Grafana** | Visualization and observability interface |
+| **NGINX Ingress** | HTTP routing and exposure |
+| **PostgreSQL** | Application database |
+| **KinD** | Local Kubernetes clusters |
+
+---
+
+## 🎯 Project Goals
+
+This project was created as a hands-on sandbox for studying and demonstrating:
+
+- Distributed observability architectures
+- Kubernetes multi-cluster environments
+- OpenTelemetry instrumentation
+- Distributed tracing
+- Metrics collection and monitoring
+- Centralized log aggregation
+- Grafana dashboards and data sources
+- NGINX Ingress
+- Kubernetes networking
+- Infrastructure separation
+- Infrastructure as Code principles
+- Local simulation of production-like observability environments
+
+---
+
+## 📜 License
+
+This project is licensed under the **MIT License**.
+
+You are free to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the software, subject to the terms and conditions of the MIT License.
+
+See the [`LICENSE`](LICENSE) file for the complete license text.
+
+---
+
+## 👤 Author
+
+Developed as a technical sandbox for studying **Kubernetes, OpenTelemetry, observability, distributed systems, and cloud-native infrastructure**.
